@@ -369,12 +369,9 @@ class Database(
         nullpool: bool = True,
         source: Optional[utils.QuerySource] = None,
     ) -> Engine:
-        try:
-            yield self.get_sqla_engine(schema=schema, nullpool=nullpool, source=source)
-        except Exception as ex:
-            raise self.db_engine_spec.get_dbapi_mapped_exception(ex)
+        yield self._get_sqla_engine(schema=schema, nullpool=nullpool, source=source)
 
-    def get_sqla_engine(
+    def _get_sqla_engine(
         self,
         schema: Optional[str] = None,
         nullpool: bool = True,
@@ -392,7 +389,7 @@ class Database(
         )
 
         masked_url = self.get_password_masked_url(sqlalchemy_url)
-        logger.debug("Database.get_sqla_engine(). Masked URL: %s", str(masked_url))
+        logger.debug("Database._get_sqla_engine(). Masked URL: %s", str(masked_url))
 
         params = extra.get("engine_params", {})
         if nullpool:
@@ -415,7 +412,7 @@ class Database(
                     source = utils.QuerySource.DASHBOARD
                 elif "/explore/" in request.referrer:
                     source = utils.QuerySource.CHART
-                elif "/superset/sqllab/" in request.referrer:
+                elif "/superset/sqllab" in request.referrer:
                     source = utils.QuerySource.SQL_LAB
 
             sqlalchemy_url, params = DB_CONNECTION_MUTATOR(
@@ -442,7 +439,7 @@ class Database(
         mutator: Optional[Callable[[pd.DataFrame], None]] = None,
     ) -> pd.DataFrame:
         sqls = self.db_engine_spec.parse_sql(sql)
-        engine = self.get_sqla_engine(schema)
+        engine = self._get_sqla_engine(schema)
 
         def needs_conversion(df_series: pd.Series) -> bool:
             return (
@@ -487,7 +484,7 @@ class Database(
             return df
 
     def compile_sqla_query(self, qry: Select, schema: Optional[str] = None) -> str:
-        engine = self.get_sqla_engine(schema=schema)
+        engine = self._get_sqla_engine(schema=schema)
 
         sql = str(qry.compile(engine, compile_kwargs={"literal_binds": True}))
 
@@ -508,7 +505,7 @@ class Database(
         cols: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Generates a ``select *`` statement in the proper dialect"""
-        eng = self.get_sqla_engine(schema=schema, source=utils.QuerySource.SQL_LAB)
+        eng = self._get_sqla_engine(schema=schema, source=utils.QuerySource.SQL_LAB)
         return self.db_engine_spec.select_star(
             self,
             table_name,
@@ -533,7 +530,7 @@ class Database(
 
     @property
     def inspector(self) -> Inspector:
-        engine = self.get_sqla_engine()
+        engine = self._get_sqla_engine()
         return sqla.inspect(engine)
 
     @cache_util.memoized_func(
@@ -546,7 +543,7 @@ class Database(
         cache: bool = False,
         cache_timeout: Optional[int] = None,
         force: bool = False,
-    ) -> List[Tuple[str, str]]:
+    ) -> Set[Tuple[str, str]]:
         """Parameters need to be passed as keyword arguments.
 
         For unused parameters, they are referenced in
@@ -556,16 +553,19 @@ class Database(
         :param cache: whether cache is enabled for the function
         :param cache_timeout: timeout in seconds for the cache
         :param force: whether to force refresh the cache
-        :return: list of tables
+        :return: The table/schema pairs
         """
         try:
-            tables = self.db_engine_spec.get_table_names(
-                database=self, inspector=self.inspector, schema=schema
-            )
-            return [(table, schema) for table in tables]
-        except Exception:  # pylint: disable=broad-except
-            logger.warning("Get all table names in schema failed", exc_info=True)
-            return []
+            return {
+                (table, schema)
+                for table in self.db_engine_spec.get_table_names(
+                    database=self,
+                    inspector=self.inspector,
+                    schema=schema,
+                )
+            }
+        except Exception as ex:
+            raise self.db_engine_spec.get_dbapi_mapped_exception(ex)
 
     @cache_util.memoized_func(
         key="db:{self.id}:schema:{schema}:view_list",
@@ -577,7 +577,7 @@ class Database(
         cache: bool = False,
         cache_timeout: Optional[int] = None,
         force: bool = False,
-    ) -> List[Tuple[str, str]]:
+    ) -> Set[Tuple[str, str]]:
         """Parameters need to be passed as keyword arguments.
 
         For unused parameters, they are referenced in
@@ -587,16 +587,19 @@ class Database(
         :param cache: whether cache is enabled for the function
         :param cache_timeout: timeout in seconds for the cache
         :param force: whether to force refresh the cache
-        :return: list of views
+        :return: set of views
         """
         try:
-            views = self.db_engine_spec.get_view_names(
-                database=self, inspector=self.inspector, schema=schema
-            )
-            return [(view, schema) for view in views]
-        except Exception:  # pylint: disable=broad-except
-            logger.warning("Get all view names failed", exc_info=True)
-            return []
+            return {
+                (view, schema)
+                for view in self.db_engine_spec.get_view_names(
+                    database=self,
+                    inspector=self.inspector,
+                    schema=schema,
+                )
+            }
+        except Exception as ex:
+            raise self.db_engine_spec.get_dbapi_mapped_exception(ex)
 
     @cache_util.memoized_func(
         key="db:{self.id}:schema_list",
@@ -618,7 +621,10 @@ class Database(
         :param force: whether to force refresh the cache
         :return: schema list
         """
-        return self.db_engine_spec.get_schema_names(self.inspector)
+        try:
+            return self.db_engine_spec.get_schema_names(self.inspector)
+        except Exception as ex:
+            raise self.db_engine_spec.get_dbapi_mapped_exception(ex) from ex
 
     @property
     def db_engine_spec(self) -> Type[db_engine_specs.BaseEngineSpec]:
@@ -673,7 +679,7 @@ class Database(
             meta,
             schema=schema or None,
             autoload=True,
-            autoload_with=self.get_sqla_engine(),
+            autoload_with=self._get_sqla_engine(),
         )
 
     def get_table_comment(
@@ -703,9 +709,14 @@ class Database(
         self, table_name: str, schema: Optional[str] = None
     ) -> Dict[str, Any]:
         pk_constraint = self.inspector.get_pk_constraint(table_name, schema) or {}
-        return {
-            key: utils.base_json_conv(value) for key, value in pk_constraint.items()
-        }
+
+        def _convert(value: Any) -> Any:
+            try:
+                return utils.base_json_conv(value)
+            except TypeError:
+                return None
+
+        return {key: _convert(value) for key, value in pk_constraint.items()}
 
     def get_foreign_keys(
         self, table_name: str, schema: Optional[str] = None
@@ -759,11 +770,11 @@ class Database(
         return self.perm  # type: ignore
 
     def has_table(self, table: Table) -> bool:
-        engine = self.get_sqla_engine()
+        engine = self._get_sqla_engine()
         return engine.has_table(table.table_name, table.schema or None)
 
     def has_table_by_name(self, table_name: str, schema: Optional[str] = None) -> bool:
-        engine = self.get_sqla_engine()
+        engine = self._get_sqla_engine()
         return engine.has_table(table_name, schema)
 
     @classmethod
@@ -782,7 +793,7 @@ class Database(
         return view_name in view_names
 
     def has_view(self, view_name: str, schema: Optional[str] = None) -> bool:
-        engine = self.get_sqla_engine()
+        engine = self._get_sqla_engine()
         return engine.run_callable(self._has_view, engine.dialect, view_name, schema)
 
     def has_view_by_name(self, view_name: str, schema: Optional[str] = None) -> bool:

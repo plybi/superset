@@ -32,8 +32,8 @@ import { useSelector } from 'react-redux';
 import FilterConfigurationLink from 'src/dashboard/components/nativeFilters/FilterBar/FilterConfigurationLink';
 import { useFilters } from 'src/dashboard/components/nativeFilters/FilterBar/state';
 import { RootState } from 'src/dashboard/types';
-import DropdownSelectableIcon from 'src/components/DropdownSelectableIcon';
-import { getFilterBarTestId } from '..';
+import { getFilterBarTestId } from '../utils';
+import FilterBarOrientationSelect from '../FilterBarOrientationSelect';
 
 const TitleArea = styled.h4`
   display: flex;
@@ -56,8 +56,13 @@ const HeaderButton = styled(Button)`
 `;
 
 const Wrapper = styled.div`
-  padding: ${({ theme }) => theme.gridUnit}px
-    ${({ theme }) => theme.gridUnit * 2}px;
+  ${({ theme }) => `
+    padding: ${theme.gridUnit}px ${theme.gridUnit * 2}px;
+
+    .ant-dropdown-trigger span {
+      padding-right: ${theme.gridUnit * 2}px;
+    }
+  `}
 `;
 
 type HeaderProps = {
@@ -93,34 +98,14 @@ const Header: FC<HeaderProps> = ({ toggleFiltersBar }) => {
   const dashboardId = useSelector<RootState, number>(
     ({ dashboardInfo }) => dashboardInfo.id,
   );
-  const canSetHorizontalFilterBar = isFeatureEnabled(
-    FeatureFlag.HORIZONTAL_FILTER_BAR,
-  );
+  const canSetHorizontalFilterBar =
+    canEdit && isFeatureEnabled(FeatureFlag.HORIZONTAL_FILTER_BAR);
 
   return (
     <Wrapper>
       <TitleArea>
         <span>{t('Filters')}</span>
-        {canSetHorizontalFilterBar && (
-          <DropdownSelectableIcon
-            onSelect={item => console.log('Selected item', item)}
-            info={t('Placement of filter bar')}
-            icon={
-              <Icons.Gear name="gear" iconColor={theme.colors.grayscale.base} />
-            }
-            menuItems={[
-              {
-                key: 'vertical',
-                label: t('Vertical (Left)'),
-              },
-              {
-                key: 'horizontal',
-                label: t('Horizontal (Top)'),
-              },
-            ]}
-            selectedKeys={['vertical']}
-          />
-        )}
+        {canSetHorizontalFilterBar && <FilterBarOrientationSelect />}
         <HeaderButton
           {...getFilterBarTestId('collapse-button')}
           buttonStyle="link"
