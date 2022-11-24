@@ -77,6 +77,22 @@ CACHE_CONFIG = {
     "CACHE_REDIS_PORT": REDIS_PORT,
     "CACHE_REDIS_DB": REDIS_RESULTS_DB,
 }
+
+FILTER_STATE_CACHE_CONFIG = {
+    'CACHE_TYPE': 'redis',
+    'CACHE_DEFAULT_TIMEOUT': 86400,
+    'CACHE_KEY_PREFIX': 'superset_filter_',
+    'CACHE_REDIS_URL': 'redis://redis:6379/2'
+}
+
+EXPLORE_FORM_DATA_CACHE_CONFIG = {
+    'CACHE_TYPE': 'RedisCache',
+    'CACHE_DEFAULT_TIMEOUT': 86400,
+    'CACHE_KEY_PREFIX': 'superset_filter_',
+    'CACHE_REDIS_URL': 'redis://redis:6379/3'
+}
+
+
 DATA_CACHE_CONFIG = CACHE_CONFIG
 
 
@@ -101,7 +117,12 @@ class CeleryConfig(object):
 
 CELERY_CONFIG = CeleryConfig
 
-FEATURE_FLAGS = {"ALERT_REPORTS": True}
+FEATURE_FLAGS = {"ALERT_REPORTS": True,
+                 "EMBEDDED_SUPERSET": True,
+                 "EMBEDDABLE_CHARTS": True,
+                 "DASHBOARD_CROSS_FILTERS": True}
+GUEST_ROLE_NAME= "Admin", # you might need to edit role permissions when 403 error
+GUEST_TOKEN_JWT_EXP_SECONDS= 3600  # 5 minutes, or you could set it longer
 ALERT_REPORTS_NOTIFICATION_DRY_RUN = True
 WEBDRIVER_BASEURL = "http://superset:8088/"
 # The base URL for the email report hyperlinks.
